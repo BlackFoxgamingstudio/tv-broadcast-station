@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sovereign TV Broadcast Stage — 16:9 UHD Master Playout</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    :root {
+      --bg-dark: #07070A;
+      --surface-elevated: rgba(22, 22, 30, 0.85);
+      --accent-blue: #0052FF;
+      --accent-cyan: #00D2FF;
+      --accent-magenta: #B533FF;
+      --accent-crimson: #FF3366;
+      --text-main: #F4F4F8;
+      --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .broadcast-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      max-width: 177.78vh;
+      max-height: 56.25vw;
+      aspect-ratio: 16 / 9;
+      background: #000000;
+      overflow: hidden;
+      box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+    }
+
+    .stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #050508;
+      overflow: hidden;
+    }
+
+    .slide-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      opacity: 0;
+      transition: opacity 0.8s ease-in-out;
+      transform: scale(1.0);
+    }
+
+    .slide-layer.active {
+      opacity: 1;
+      animation: kenBurns 18s ease-out forwards;
+    }
+
+    @keyframes kenBurns {
+      0% { transform: scale(1.0) translate(0, 0); }
+      50% { transform: scale(1.04) translate(-1%, -0.5%); }
+      100% { transform: scale(1.08) translate(1%, 0.5%); }
+    }
+
+    .top-hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: linear-gradient(180deg, rgba(7, 7, 10, 0.9) 0%, rgba(7, 7, 10, 0) 100%);
+      z-index: 20;
+    }
+
+    .channel-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 51, 102, 0.2);
+      border: 1px solid var(--accent-crimson);
+      color: var(--accent-crimson);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 3px;
+      letter-spacing: 0.5px;
+    }
+
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent-crimson);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-crimson);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.8); }
+    }
+
+    .channel-title {
+      font-size: 13px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: #FFFFFF;
+      letter-spacing: 0.5px;
+    }
+
+    .shot-optics-badge {
+      background: rgba(13, 13, 18, 0.8);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      color: var(--accent-cyan);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .teleprompter-box {
+      position: absolute;
+      bottom: 64px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .beat-banner {
+      background: var(--accent-blue);
+      color: #FFFFFF;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 2px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    .caption-text {
+      background: rgba(10, 10, 14, 0.88);
+      backdrop-filter: blur(8px);
+      border-left: 3px solid var(--accent-cyan);
+      color: #FFFFFF;
+      font-size: 14px;
+      line-height: 1.4;
+      padding: 8px 16px;
+      border-radius: 0 4px 4px 0;
+      max-width: 85%;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    }
+
+    .ticker-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 38px;
+      background: #0B0B10;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      z-index: 20;
+      overflow: hidden;
+    }
+
+    .ticker-lead {
+      background: var(--accent-crimson);
+      color: #FFFFFF;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      padding: 0 16px;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .ticker-track {
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    .ticker-content {
+      display: inline-block;
+      padding-left: 100%;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-main);
+      animation: tickerCrawl 35s linear infinite;
+    }
+
+    @keyframes tickerCrawl {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
+
+    .playout-controls {
+      position: absolute;
+      bottom: 40px;
+      left: 0;
+      right: 0;
+      padding: 8px 24px;
+      background: rgba(7, 7, 10, 0.92);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      z-index: 30;
+      opacity: 0;
+      transition: opacity 0.25s ease-in-out;
+    }
+
+    .broadcast-container:hover .playout-controls {
+      opacity: 1;
+    }
+
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: #FFFFFF;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+
+    .ctrl-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--accent-cyan);
+    }
+
+    .timecode-display {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #8E8EA0;
+      white-space: nowrap;
+    }
+
+    .beat-scrubber {
+      flex: 1;
+      display: flex;
+      gap: 3px;
+      height: 18px;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .beat-segment {
+      flex: 1;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .beat-segment:hover {
+      height: 10px;
+      background: var(--accent-blue);
+    }
+
+    .beat-segment.past {
+      background: rgba(0, 210, 255, 0.5);
+    }
+
+    .beat-segment.current {
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+      height: 8px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #8E8EA0;
+      text-align: center;
+      padding: 40px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="broadcast-container" id="broadcastContainer">
+    <div class="stage-canvas" id="stageCanvas">
+      <div class="slide-layer" id="slideA"></div>
+      <div class="slide-layer" id="slideB"></div>
+      
+      <div class="empty-state" id="emptyState">
+        <i class="fa-solid fa-play-circle fa-4x text-muted mb-3"></i>
+        <h3 class="text-white">SOVEREIGN BROADCAST STAGE</h3>
+        <p class="small text-muted mt-1">Standby for automated playout package. Deploy a project from Storyboard AI or n8n.</p>
+      </div>
+    </div>
+
+    <div class="top-hud">
+      <div class="channel-brand">
+        <span class="live-badge">
+          <span class="pulse-dot"></span> LIVE ON AIR
+        </span>
+        <span class="channel-title" id="showTitle">SNN // 16:9 MASTER FEED</span>
+      </div>
+
+      <div class="shot-optics-badge" id="shotOpticsBadge">
+        <i class="fa-solid fa-camera me-1"></i> <span id="shotOpticsText">CAM 01 // 24mm Anamorphic</span>
+      </div>
+    </div>
+
+    <div class="teleprompter-box" id="teleprompterBox" style="display: none;">
+      <div class="beat-banner" id="beatBanner">Beat 01: Opening Image (Act 1)</div>
+      <div class="caption-text" id="captionText">Narrative script line here...</div>
+    </div>
+
+    <div class="playout-controls">
+      <button class="ctrl-btn" id="playBtn" onclick="togglePlayPause()">
+        <i class="fa-solid fa-play" id="playIcon"></i>
+      </button>
+
+      <span class="timecode-display" id="timecodeDisplay">00:00 / 00:00</span>
+
+      <div class="beat-scrubber" id="beatScrubber"></div>
+
+      <button class="ctrl-btn" onclick="toggleMute()">
+        <i class="fa-solid fa-volume-high" id="volIcon"></i>
+      </button>
+      <button class="ctrl-btn" onclick="toggleFullscreen()">
+        <i class="fa-solid fa-expand"></i>
+      </button>
+    </div>
+
+    <div class="ticker-bar">
+      <div class="ticker-lead">
+        <i class="fa-solid fa-bolt"></i> BREAKING
+      </div>
+      <div class="ticker-track">
+        <div class="ticker-content" id="tickerText">
+          SOVEREIGN BIZ BOX MASTER BROADCAST  ★  AUTONOMOUS AI STORYBOARD TO 16:9 UHD STAGE  ★  PORT 8812 ACTIVE
+        </div>
+      </div>
+    </div>
+
+    <audio id="syncAudio" preload="auto"></audio>
+  </div>
+
+  <script>
+    let showData = null;
+    let frames = [];
+    let currentFrameIndex = -1;
+    let activeSlideLayer = "A";
+    let isPlaying = false;
+    let fallbackTimer = null;
+    const audio = document.getElementById("syncAudio");
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedProject = urlParams.get("project_id") || urlParams.get("id");
+
+    async function loadBroadcastData() {
+      try {
+        let endpoint = "/api/v1/broadcast/current";
+        if (requestedProject) {
+          endpoint = `/api/v1/broadcast/project/${requestedProject}`;
+        }
+
+        const res = await fetch(endpoint);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.frames && data.frames.length > 0) {
+            initBroadcast(data);
+            return;
+          }
+        }
+        
+        const sbRes = await fetch(`http://127.0.0.1:8815/api/projects/${requestedProject || "proj-yt-ep01-599-mainframe"}`);
+        if (sbRes.ok) {
+          const sbData = await sbRes.json();
+          adaptStoryboardData(sbData);
+        }
+      } catch (e) {
+        console.warn("Playout data lookup:", e);
+      }
+    }
+
+    function adaptStoryboardData(sb) {
+      const rawFrames = sb.frames || [];
+      const adaptedFrames = rawFrames.map((f, idx) => {
+        let imgUrl = f.image_url || "";
+        if (imgUrl && !imgUrl.startsWith("http")) {
+          imgUrl = "http://127.0.0.1:8815" + imgUrl;
+        }
+        return {
+          frame_id: f.frame_id || `FRAME-${idx+1}`,
+          sequence: idx + 1,
+          title: f.title || f.beat_name || `Beat ${idx+1}`,
+          beat_name: f.beat_name || `Beat ${idx+1}`,
+          act: f.act || (idx < 5 ? "Act 1" : (idx < 12 ? "Act 2" : "Act 3")),
+          image_url: imgUrl,
+          shot_type: f.shot_type || "Cinematic Wide Tracking Shot",
+          description: f.description || "",
+          prompt: f.prompt || "",
+          start_time_sec: f.start_time_sec !== undefined ? f.start_time_sec : (idx * 8.0),
+          end_time_sec: f.end_time_sec !== undefined ? f.end_time_sec : ((idx + 1) * 8.0),
+          duration_sec: f.duration_sec || 8.0
+        };
+      });
+
+      initBroadcast({
+        project_id: sb.project_id || sb.id,
+        broadcast_title: sb.title || "Sovereign Storyboard Stream",
+        audio_url: sb.audio_url || null,
+        ticker: `BREAKING: ${sb.title}  ★  15 SAVE THE CAT! BEATS RENDERED IN 16:9 UHD  ★  AUTONOMOUS PRODUCTION MATRIX ACTIVE`,
+        frames: adaptedFrames
+      });
+    }
+
+    function initBroadcast(data) {
+      showData = data;
+      frames = data.frames || [];
+      document.getElementById("emptyState").style.display = "none";
+      document.getElementById("teleprompterBox").style.display = "flex";
+      document.getElementById("showTitle").innerText = (data.broadcast_title || "SNN 16:9 MASTER FEED").toUpperCase();
+
+      if (data.ticker) {
+        document.getElementById("tickerText").innerText = data.ticker;
+      }
+
+      if (data.audio_url) {
+        audio.src = data.audio_url.startsWith("http") ? data.audio_url : `http://127.0.0.1:8815${data.audio_url}`;
+        audio.load();
+      }
+
+      renderBeatScrubber();
+      jumpToFrame(0);
+      playBroadcast();
+    }
+
+    function renderBeatScrubber() {
+      const scrubber = document.getElementById("beatScrubber");
+      scrubber.innerHTML = "";
+      frames.forEach((f, idx) => {
+        const seg = document.createElement("div");
+        seg.className = "beat-segment";
+        seg.title = `${f.beat_name || f.title}`;
+        seg.onclick = (e) => {
+          e.stopPropagation();
+          jumpToFrame(idx);
+          if (audio.src && audio.duration) {
+            audio.currentTime = f.start_time_sec || (idx * 8.0);
+          }
+        };
+        scrubber.appendChild(seg);
+      });
+    }
+
+    function updateScrubber(currentIdx) {
+      const segments = document.querySelectorAll(".beat-segment");
+      segments.forEach((seg, idx) => {
+        seg.classList.remove("current", "past");
+        if (idx === currentIdx) {
+          seg.classList.add("current");
+        } else if (idx < currentIdx) {
+          seg.classList.add("past");
+        }
+      });
+    }
+
+    function jumpToFrame(index) {
+      if (index < 0 || index >= frames.length) return;
+      currentFrameIndex = index;
+      const frame = frames[currentFrameIndex];
+
+      const layerToFadeIn = activeSlideLayer === "A" ? document.getElementById("slideB") : document.getElementById("slideA");
+      const layerToFadeOut = activeSlideLayer === "A" ? document.getElementById("slideA") : document.getElementById("slideB");
+
+      if (frame.image_url) {
+        layerToFadeIn.style.backgroundImage = `url("${frame.image_url}")`;
+      } else {
+        layerToFadeIn.style.backgroundImage = "none";
+        layerToFadeIn.style.backgroundColor = "#16161E";
+      }
+
+      layerToFadeIn.classList.add("active");
+      layerToFadeOut.classList.remove("active");
+      activeSlideLayer = activeSlideLayer === "A" ? "B" : "A";
+
+      document.getElementById("beatBanner").innerText = `${frame.title || frame.beat_name} (${frame.act || "Act 1"})`;
+      document.getElementById("captionText").innerText = frame.description || frame.prompt || "";
+      document.getElementById("shotOpticsText").innerText = `OPTICS: ${frame.shot_type || "24mm Anamorphic"}`;
+
+      updateScrubber(currentFrameIndex);
+    }
+
+    audio.addEventListener("timeupdate", () => {
+      if (!isPlaying || frames.length === 0) return;
+      const cur = audio.currentTime;
+      const dur = audio.duration || 1;
+      formatTimecode(cur, dur);
+
+      const matchingIdx = frames.findIndex(f => cur >= f.start_time_sec && cur < (f.end_time_sec || (f.start_time_sec + f.duration_sec)));
+      if (matchingIdx !== -1 && matchingIdx !== currentFrameIndex) {
+        jumpToFrame(matchingIdx);
+      }
+    });
+
+    audio.addEventListener("ended", () => {
+      pauseBroadcast();
+      jumpToFrame(0);
+    });
+
+    function formatTimecode(cur, dur) {
+      const pad = n => String(Math.floor(n)).padStart(2, "0");
+      const curStr = `${pad(cur / 60)}:${pad(cur % 60)}`;
+      const durStr = `${pad(dur / 60)}:${pad(dur % 60)}`;
+      document.getElementById("timecodeDisplay").innerText = `${curStr} / ${durStr}`;
+    }
+
+    function togglePlayPause() {
+      if (isPlaying) pauseBroadcast();
+      else playBroadcast();
+    }
+
+    function playBroadcast() {
+      isPlaying = true;
+      document.getElementById("playIcon").className = "fa-solid fa-pause";
+      if (audio.src) {
+        audio.play().catch(e => console.warn("Audio autoplay blocked by browser policy; user interaction unlocks audio.", e));
+      } else {
+        startFallbackTimer();
+      }
+    }
+
+    function pauseBroadcast() {
+      isPlaying = false;
+      document.getElementById("playIcon").className = "fa-solid fa-play";
+      if (audio.src) audio.pause();
+      if (fallbackTimer) clearInterval(fallbackTimer);
+    }
+
+    function startFallbackTimer() {
+      if (fallbackTimer) clearInterval(fallbackTimer);
+      fallbackTimer = setInterval(() => {
+        if (!isPlaying) return;
+        let next = (currentFrameIndex + 1) % frames.length;
+        jumpToFrame(next);
+      }, 8000);
+    }
+
+    function toggleMute() {
+      audio.muted = !audio.muted;
+      document.getElementById("volIcon").className = audio.muted ? "fa-solid fa-volume-xmark" : "fa-solid fa-volume-high";
+    }
+
+    function toggleFullscreen() {
+      const container = document.getElementById("broadcastContainer");
+      if (!document.fullscreenElement) {
+        container.requestFullscreen().catch(err => alert(err.message));
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", loadBroadcastData);
+  </script>
+</body>
+</html>

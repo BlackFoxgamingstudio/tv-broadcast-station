@@ -1,0 +1,10 @@
+{
+  "project_id": "test-show-01",
+  "broadcast_title": "Test Show",
+  "frames": [
+    {
+      "frame_id": "f1",
+      "title": "Opening"
+    }
+  ]
+}
