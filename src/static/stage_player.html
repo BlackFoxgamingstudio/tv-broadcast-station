@@ -434,8 +434,9 @@
       <div class="project-selector" style="display: flex; align-items: center; gap: 6px; background: rgba(10, 14, 23, 0.9); border: 1px solid rgba(0, 240, 255, 0.5); border-radius: 4px; padding: 3px 8px;">
         <i class="fa-solid fa-clapperboard" style="color: #00F0FF; font-size: 11px;"></i>
         <select id="stageProjectSelect" onchange="switchStageProject(this.value)" style="background: transparent; border: none; color: #FFF; font-family: var(--font-mono); font-size: 11px; font-weight: 700; outline: none; cursor: pointer;">
+          <option value="proj-yt-ep01-599-mainframe" style="background: #0B0F19; color: #FFF;">📺 Ep 1: $599 Mainframe (10:56)</option>
+          <option value="proj-yt-ep02-goodbye-zapier" style="background: #0B0F19; color: #FFF;">⚡ Ep 2: Goodbye Zapier (01:20)</option>
           <option value="proj-chicago-chess-dream" style="background: #0B0F19; color: #FFF;">🎬 The Sicilian Defense (16:16)</option>
-          <option value="proj-yt-ep01-599-mainframe" style="background: #0B0F19; color: #FFF;">📺 Ep 1: $599 Mainframe (01:20)</option>
         </select>
       </div>
 
@@ -809,16 +810,53 @@
       }
 
       if (data.audio_url) {
-        let finalSrc = data.audio_url.startsWith("http") ? data.audio_url : `http://127.0.0.1:8815${data.audio_url}`;
+        const baseOrigin = window.location.origin;
+        let cleanAudioUrl = data.audio_url;
+        
+        // Browser compatibility: Chrome cannot decode raw AIFF. Auto-map to .m4a AAC companion
+        if (cleanAudioUrl.match(/\.(aif|aiff|aifc)($|\?)/i)) {
+          cleanAudioUrl = cleanAudioUrl.replace(/\.(aif|aiff|aifc)($|\?)/i, ".m4a$2");
+        }
+
+        let finalSrc = cleanAudioUrl.startsWith("http") ? cleanAudioUrl : `${baseOrigin}${cleanAudioUrl.startsWith("/") ? "" : "/"}${cleanAudioUrl}`;
         audio.src = finalSrc;
-        audio.onerror = () => {
-          if (audio.src.includes(".aif")) {
-            console.warn("Raw AIFF not supported by browser, falling back to AAC M4A companion...");
-            audio.src = audio.src.replace(/\.(aif|aiff|aifc)($|\?)/, ".m4a$2");
+
+        let fallbackCount = 0;
+        audio.onerror = (err) => {
+          console.warn("[Stage Audio] Error loading audio track:", audio.src, err);
+          if (fallbackCount === 0) {
+            fallbackCount++;
+            console.log("[Stage Audio] Trying companion MP3...");
+            audio.src = audio.src.replace(/\.(m4a|aif|aiff|aifc)($|\?)/i, ".mp3$2");
+            audio.load();
+            return;
+          }
+          if (fallbackCount === 1) {
+            fallbackCount++;
+            console.log("[Stage Audio] Trying alternate backend port...");
+            if (audio.src.includes(":8812")) {
+              audio.src = audio.src.replace(":8812", ":8815");
+              audio.load();
+              return;
+            } else if (audio.src.includes(":8815")) {
+              audio.src = audio.src.replace(":8815", ":8812");
+              audio.load();
+              return;
+            }
+          }
+          if (fallbackCount === 2) {
+            fallbackCount++;
+            console.log("[Stage Audio] Trying raw original audio URL...");
+            audio.src = data.audio_url.startsWith("http") ? data.audio_url : `${baseOrigin}${data.audio_url.startsWith("/") ? "" : "/"}${data.audio_url}`;
             audio.load();
           }
         };
+
         audio.load();
+
+        if (data.audio_duration) {
+          formatTimecode(0, data.audio_duration);
+        }
 
         const trackBadge = document.getElementById("audioTrackName");
         if (trackBadge) {
@@ -843,8 +881,11 @@
         seg.onclick = (e) => {
           e.stopPropagation();
           jumpToFrame(idx);
-          if (audio.src && audio.duration) {
-            audio.currentTime = f.start_time_sec || (idx * 8.0);
+          if (audio.src) {
+            audio.currentTime = f.start_time_sec !== undefined ? f.start_time_sec : (idx * 8.0);
+            if (audio.paused) {
+              playBroadcast();
+            }
           }
         };
         scrubber.appendChild(seg);
@@ -889,10 +930,25 @@
       updateScrubber(currentFrameIndex);
     }
 
+    audio.addEventListener("loadedmetadata", () => {
+      console.log(`[Stage Audio] Loaded metadata: ${audio.duration}s`);
+      formatTimecode(audio.currentTime, audio.duration || (showData && showData.audio_duration) || 1);
+      const trackBadge = document.getElementById("audioTrackName");
+      if (trackBadge && audio.duration) {
+        const fn = audio.src.split("/").pop().replace(/^[a-zA-Z0-9_-]+_/, "");
+        const dur = `${Math.floor(audio.duration/60)}:${Math.floor(audio.duration%60).toString().padStart(2, '0')}`;
+        trackBadge.innerText = `${fn} (${dur})`;
+      }
+    });
+
+    audio.addEventListener("canplay", () => {
+      formatTimecode(audio.currentTime, audio.duration || (showData && showData.audio_duration) || 1);
+    });
+
     audio.addEventListener("timeupdate", () => {
       if (!isPlaying || frames.length === 0) return;
       const cur = audio.currentTime;
-      const dur = audio.duration || 1;
+      const dur = audio.duration || (showData && showData.audio_duration) || 1;
       formatTimecode(cur, dur);
 
       const matchingIdx = frames.findIndex(f => cur >= f.start_time_sec && cur < (f.end_time_sec || (f.start_time_sec + f.duration_sec)));
@@ -922,7 +978,13 @@
       isPlaying = true;
       document.getElementById("playIcon").className = "fa-solid fa-pause";
       if (audio.src) {
-        audio.play().catch(e => console.warn("Audio autoplay blocked by browser policy; user interaction unlocks audio.", e));
+        const p = audio.play();
+        if (p !== undefined) {
+          p.catch(e => {
+            console.warn("[Stage Audio] Autoplay blocked by browser policy; user click unlocks audio.", e);
+            showToast("🔊 Tap anywhere or click Play to enable audio", 3500);
+          });
+        }
       } else {
         startFallbackTimer();
       }
@@ -957,6 +1019,15 @@
         document.exitFullscreen();
       }
     }
+
+    // Browser Autoplay Policy: User click anywhere on stage resumes audio playback if blocked
+    document.addEventListener("click", () => {
+      if (isPlaying && audio.src && audio.paused) {
+        audio.play().then(() => {
+          document.getElementById("playIcon").className = "fa-solid fa-pause";
+        }).catch(() => {});
+      }
+    });
 
     window.addEventListener("DOMContentLoaded", loadBroadcastData);
   </script>

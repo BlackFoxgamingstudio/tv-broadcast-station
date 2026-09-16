@@ -250,21 +250,38 @@ class BroadcastPlayoutHandler(BaseHTTPRequestHandler):
 
         # 7. Static / Media Serving (/media/..., /audio/..., /frame-images/...)
         if path.startswith("/media/") or path.startswith("/audio/") or path.startswith("/frame-images/") or path.startswith("/frame_images/"):
-            rel_sub = path.split("/", 2)[-1]
-            candidates = [
-                MEDIA_DIR / rel_sub,
-                DATA_DIR / rel_sub,
-                DATA_DIR / "media" / rel_sub,
-                DATA_DIR / "audio" / rel_sub,
-                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/audio") / rel_sub,
-                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/frame_images") / rel_sub,
-                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/generated_images") / rel_sub,
-                Path("/Users/russellpowers/Sovereign Biz Box/generated_images") / rel_sub,
+            rel_sub = urllib.parse.unquote(path.split("/", 2)[-1]).strip()
+            p_rel = Path(rel_sub)
+            test_names = [rel_sub, p_rel.name]
+            
+            # Browser audio compatibility: check companion m4a/mp3 if aif was requested, or vice versa
+            if p_rel.suffix.lower() in (".aif", ".aiff", ".aifc"):
+                test_names.extend([f"{p_rel.stem}.m4a", f"{p_rel.stem}.mp3", f"{p_rel.name}.m4a", f"{p_rel.name}.mp3"])
+            elif p_rel.suffix.lower() == ".m4a":
+                test_names.extend([f"{p_rel.stem}.mp3", f"{p_rel.stem}.aif", f"{p_rel.name}.mp3"])
+            elif p_rel.suffix.lower() == ".mp3":
+                test_names.extend([f"{p_rel.stem}.m4a", f"{p_rel.stem}.aif"])
+
+            search_dirs = [
+                DATA_DIR / "audio",
+                DATA_DIR / "media",
+                MEDIA_DIR,
+                DATA_DIR,
+                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/audio"),
+                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/frame_images"),
+                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/generated_images"),
+                Path("/Users/russellpowers/Sovereign Biz Box/generated_images"),
             ]
             local_candidate = None
-            for c in candidates:
-                if c.exists() and c.is_file():
-                    local_candidate = c
+            for sdir in search_dirs:
+                if not sdir.exists():
+                    continue
+                for tname in test_names:
+                    c = sdir / tname
+                    if c.exists() and c.is_file():
+                        local_candidate = c
+                        break
+                if local_candidate:
                     break
 
             if local_candidate:
@@ -273,8 +290,43 @@ class BroadcastPlayoutHandler(BaseHTTPRequestHandler):
                     mime = "audio/aiff"
                 elif str(local_candidate).endswith(".m4a"):
                     mime = "audio/mp4"
+                elif str(local_candidate).endswith(".mp3"):
+                    mime = "audio/mpeg"
                 mime = mime or "application/octet-stream"
                 file_size = local_candidate.stat().st_size
+
+                range_header = self.headers.get("Range")
+                if range_header and range_header.startswith("bytes="):
+                    try:
+                        range_spec = range_header[6:].strip()
+                        start_str, end_str = range_spec.split("-", 1)
+                        start = int(start_str) if start_str else 0
+                        end = int(end_str) if end_str else file_size - 1
+                        if end >= file_size:
+                            end = file_size - 1
+                        length = end - start + 1
+
+                        self.send_response(206)
+                        self.send_header("Content-Type", mime)
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                        self.send_header("Content-Length", str(length))
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.send_cors_headers()
+                        self.end_headers()
+
+                        with open(local_candidate, "rb") as mf:
+                            mf.seek(start)
+                            bytes_remaining = length
+                            while bytes_remaining > 0:
+                                chunk_size = min(65536, bytes_remaining)
+                                chunk = mf.read(chunk_size)
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                                bytes_remaining -= len(chunk)
+                        return
+                    except Exception as e:
+                        print(f"[TV Server] Error handling Range request: {e}")
 
                 self.send_response(200)
                 self.send_header("Content-Type", mime)
