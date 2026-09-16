@@ -1,0 +1,53 @@
+{
+  "name": "SBB - Sovereign TV Broadcast Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tv-broadcast-trigger",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Broadcast Inbound Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8812/api/v1/broadcast/render-video?project_id={{ $json.project_id || 'proj-chicago-chess-dream' }}",
+        "method": "GET",
+        "options": {}
+      },
+      "id": "sovereign-node",
+      "name": "Compile 1080p Master Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        480,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Broadcast Inbound Trigger": {
+      "main": [
+        [
+          {
+            "node": "Compile 1080p Master Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

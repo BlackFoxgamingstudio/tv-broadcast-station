@@ -44,13 +44,16 @@ A high-performance 16:9 cinematic video playout and visual stage broadcast micro
 | `POST` | `/api/v1/execute` | Standard n8n microservice execution endpoint (stage sequencing, ticker update). |
 | `GET` | `/audio/{filename}` | Byte-range streaming audio server for show narration and music tracks. |
 | `GET` | `/media/{filename}` | Static media file server for generated storyboard images. |
+| `GET` | `/api/v1/broadcast/render-video` | Compiles 1080p MP4 master video with TV broadcast HUD, lower-third beat banners, teleprompter words, and AAC 320k audio. |
+| `GET` | `/api/v1/broadcast/download-video/{id}` | Direct binary download of finished 1080p master video. |
 
 ---
 
 ## ⚡ Integration with n8n & Sovereign Studio
 
-- **n8n Workflow `PKG-037`**: Receives project audio, recalculates beat boundaries, and deploys the entire package directly to `POST /api/v1/broadcast/deploy`.
-- **Sovereign Studio Desktop App**: Embeds `http://127.0.0.1:8812/stage` inside the `TV Control Room` tab using a native macOS WebKit view with hot-reload triggers.
+- **n8n Workflow (`solutions/tv-broadcast-station/n8n/workflow.json`)**: Automates video rendering and broadcast triggers.
+- **Custom n8n Node (`SovereignTvBroadcastStation`)**: Native custom node in `sbb-n8n-command-center/custom-nodes` exposing video compilation and playout controls.
+- **Sovereign Studio Desktop App**: Embeds `http://127.0.0.1:8812/stage` inside the `TV Control Room` tab with native macOS `URLSession.downloadTask` video export directly to `~/Downloads/`.
 
 ---
 

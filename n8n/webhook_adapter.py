@@ -51,6 +51,9 @@ class BroadcastPlayoutHandler(BaseHTTPRequestHandler):
         self.send_cors_headers()
         self.end_headers()
 
+    def do_HEAD(self):
+        self.do_GET()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -95,6 +98,12 @@ class BroadcastPlayoutHandler(BaseHTTPRequestHandler):
         # 4. GET /api/v1/broadcast/current
         if path == "/api/v1/broadcast/current":
             global current_broadcast_data
+            if CURRENT_BROADCAST_FILE.exists():
+                try:
+                    with open(CURRENT_BROADCAST_FILE, "r", encoding="utf-8") as cbf:
+                        current_broadcast_data = json.load(cbf)
+                except Exception:
+                    pass
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_cors_headers()
@@ -152,15 +161,118 @@ class BroadcastPlayoutHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"projects": projects}).encode("utf-8"))
             return
 
-        # 7. Static / Media Serving (/media/..., /audio/...)
-        if path.startswith("/media/") or path.startswith("/audio/"):
-            rel_sub = path.split("/", 2)[-1]
-            local_candidate = MEDIA_DIR / rel_sub
-            if not local_candidate.exists():
-                local_candidate = DATA_DIR / rel_sub
+        # 6b. Render/Export YouTube Video: /api/v1/broadcast/render-video
+        if path == "/api/v1/broadcast/render-video":
+            pid = query.get("project_id", [None])[0] or current_broadcast_data.get("project_id", "proj-yt-ep01-599-mainframe")
+            target_file = BROADCASTS_DIR / f"{pid}.json"
+            b_data = current_broadcast_data
+            if target_file.exists():
+                with open(target_file, "r", encoding="utf-8") as bf:
+                    b_data = json.load(bf)
+            try:
+                from src.video_compiler import VideoCompiler
+                force = query.get("force", ["0"])[0].lower() in ("1", "true", "force")
+                res = VideoCompiler.render_project_video(b_data, output_dir=DATA_DIR / "exports", force_recompile=force)
+                res["download_url"] = f"/api/v1/broadcast/download-video/{pid}"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
 
-            if local_candidate.exists() and local_candidate.is_file():
+        # 6c. Download Rendered Video: /api/v1/broadcast/download-video/{project_id}
+        if path.startswith("/api/v1/broadcast/download-video/"):
+            pid = path.replace("/api/v1/broadcast/download-video/", "").strip()
+            exports_dir = DATA_DIR / "exports"
+            candidates = list(exports_dir.glob(f"*{pid}*.mp4"))
+
+            # If not matched by PID directly, check title from broadcast metadata
+            if not candidates:
+                b_file = BROADCASTS_DIR / f"{pid}.json"
+                target_data = current_broadcast_data if pid in ("current", current_broadcast_data.get("project_id")) else None
+                if not target_data and b_file.exists():
+                    try:
+                        with open(b_file, "r", encoding="utf-8") as bf:
+                            target_data = json.load(bf)
+                    except Exception:
+                        pass
+                if target_data:
+                    title = target_data.get("broadcast_title", "")
+                    safe_title = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in title)
+                    if safe_title:
+                        candidates = list(exports_dir.glob(f"*{safe_title}*.mp4"))
+
+            # Also check storyboard-ai and Downloads
+            if not candidates:
+                for alt_dir in [
+                    Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/exports"),
+                    Path.home() / "Downloads"
+                ]:
+                    if alt_dir.exists():
+                        candidates = list(alt_dir.glob(f"*{pid}*.mp4"))
+                        if not candidates and target_data and safe_title:
+                            candidates = list(alt_dir.glob(f"*{safe_title}*.mp4"))
+                        if candidates:
+                            break
+
+            if candidates:
+                candidates.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+                video_file = candidates[0]
+                file_size = video_file.stat().st_size
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Content-Disposition", f'attachment; filename="{video_file.name}"')
+                self.send_header("Content-Length", str(file_size))
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_cors_headers()
+                self.end_headers()
+                with open(video_file, "rb") as vf:
+                    try:
+                        while chunk := vf.read(65536):
+                            self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                return
+            else:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Video not found. Please render first."}).encode("utf-8"))
+                return
+
+        # 7. Static / Media Serving (/media/..., /audio/..., /frame-images/...)
+        if path.startswith("/media/") or path.startswith("/audio/") or path.startswith("/frame-images/") or path.startswith("/frame_images/"):
+            rel_sub = path.split("/", 2)[-1]
+            candidates = [
+                MEDIA_DIR / rel_sub,
+                DATA_DIR / rel_sub,
+                DATA_DIR / "media" / rel_sub,
+                DATA_DIR / "audio" / rel_sub,
+                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/audio") / rel_sub,
+                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/frame_images") / rel_sub,
+                Path("/Users/russellpowers/Sovereign Biz Box/solutions/storyboard-ai/backend/generated_images") / rel_sub,
+                Path("/Users/russellpowers/Sovereign Biz Box/generated_images") / rel_sub,
+            ]
+            local_candidate = None
+            for c in candidates:
+                if c.exists() and c.is_file():
+                    local_candidate = c
+                    break
+
+            if local_candidate:
                 mime, _ = mimetypes.guess_type(str(local_candidate))
+                if str(local_candidate).endswith(".aif") or str(local_candidate).endswith(".aiff"):
+                    mime = "audio/aiff"
+                elif str(local_candidate).endswith(".m4a"):
+                    mime = "audio/mp4"
                 mime = mime or "application/octet-stream"
                 file_size = local_candidate.stat().st_size
 
